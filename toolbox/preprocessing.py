@@ -154,7 +154,6 @@ def cut_data(data: pd.DataFrame, minimal_duration: int = 86400) -> pd.DataFrame:
     for start_idx in valid_indices:
         if start_idx < end_idx:
             continue
-        # for end_idx in unvalid_indices:
         end_idx = unvalid_indices[unvalid_indices > start_idx]
         if len(end_idx) > 0:
             end_idx = end_idx[0]
@@ -244,7 +243,7 @@ def preprocessing(
 
     if len(dfs) == 1:
         print("No cut in the file")
-        return dfs[0]
+        return dfs
     else:
         print(f"the file has been cutted in {len(dfs)} subset")
         return dfs
