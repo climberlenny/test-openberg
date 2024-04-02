@@ -171,13 +171,13 @@ def cut_data(data: pd.DataFrame, minimal_duration: int = 86400) -> pd.DataFrame:
 
 
 def interpolation(
-    data: pd.DataFrame, ts: str, velocity_threshold: int = 10
+    data: pd.DataFrame, ts: int, velocity_threshold: int = 10
 ) -> pd.DataFrame:
     """Interpolates the dataframe to a desired timestep and remove points where velocity is above a threshold
 
     Args:
         data (pd.DataFrame): _description_
-        ts (str): timestep key to access the amount in second from the global dictionnary
+        ts (int): timestep in second
         velocity_threshold (int, optional): maximum velocity allowed. Defaults to 10.
 
     Returns:
@@ -196,7 +196,7 @@ def interpolation(
     ).mean()  # Resampling to min intervals and taking the mean
     # Interpolate missing values (linear interpolation)
     df_interpolated = data_resampled.interpolate(method="linear")
-    data_resampled = df_interpolated.resample(timedelta(seconds=timestep[ts])).mean()
+    data_resampled = df_interpolated.resample(timedelta(seconds=ts)).mean()
     data_resampled["Longitude"] += 360
     data_resampled["Longitude"] %= 360
     return data_resampled
