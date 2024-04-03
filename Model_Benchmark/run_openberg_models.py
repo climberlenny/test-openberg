@@ -9,7 +9,13 @@ import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 import matplotlib.pyplot as plt
 from toolbox.preprocessing import preprocessing
-from toolbox.postprocessing import postprocessing, compute_IDs, compute_SS
+from toolbox.postprocessing import (
+    postprocessing,
+    compute_IDs,
+    compute_SS,
+    polarplot,
+    statistics,
+)
 from netCDF4 import Dataset
 import os
 import copernicusmarine
@@ -34,8 +40,8 @@ ocean_models = {
         "cmems_mod_glo_phy_myint_0.083deg_P1D-m",
     ],  # après le 01/07/2021
     "TOPAZ4": ["cmems_mod_arc_phy_my_topaz4_P1D-m"],
-    "TOPAZ5": ["cmems_mod_arc_phy_anfc_6km_detided_P1D-m"],
-    "TOPAZ6": ["dataset-topaz6-arc-15min-3km-be"],
+    # "TOPAZ5": ["cmems_mod_arc_phy_anfc_6km_detided_P1D-m"],
+    # "TOPAZ6": ["dataset-topaz6-arc-15min-3km-be"],
 }
 
 wind_models = {
@@ -55,6 +61,7 @@ wind_models = {
         "DATA/FOR_LENNY/WIND_MODELS/2021/CARRA/param_165.nc",
         "DATA/FOR_LENNY/WIND_MODELS/2021/CARRA/param_166.nc",
     ],
+    None: [],
 }
 
 
@@ -84,7 +91,7 @@ def multiseeding(
     if not os.path.exists(
         os.path.join(output_folder, f"global_{ocean_model}_{wind_model}_run.nc")
     ):
-        o = OpenBerg(loglevel=20)
+        o = OpenBerg(loglevel=0)
         for om in ocean_models[ocean_model]:
             readers_current = copernicusmarine.open_dataset(
                 dataset_id=om,
@@ -94,11 +101,16 @@ def multiseeding(
             )
             readers_current = reader_netCDF_CF_generic.Reader(
                 readers_current,
+                standard_name_mapping={
+                    "eastward_sea_water_velocity": "x_sea_water_velocity",
+                    "northward_sea_water_velocity": "y_sea_water_velocity",
+                },
             )
             o.add_reader(readers_current)
 
-        reader_wind = reader_netCDF_CF_generic.Reader(wind_models[wind_model])
-        o.add_reader(reader_wind)
+        if not wind_model is None:
+            reader_wind = reader_netCDF_CF_generic.Reader(wind_models[wind_model])
+            o.add_reader(reader_wind)
 
         o.set_config("environment:fallback:x_wind", 0)
         o.set_config("environment:fallback:y_wind", 0)
@@ -139,6 +151,7 @@ def multiseeding(
         )
         t2 = time()
         print(t2 - t1)
+        o.plot(fast=True)
     else:
         print("the output file already exists")
         if Clean:
@@ -160,17 +173,17 @@ def multiseeding(
     return os.listdir(input_folder)
 
 
-# files = [os.path.join(input_folder, f) for f in os.listdir(input_folder)]
-# for wind_model in wind_models.keys():
-#     for ocean_model in ocean_models.keys():
-#         print(ocean_model, wind_model)
-#         multiseeding(
-#             files=files,
-#             output_folder=output_folder,
-#             prep_params=prep_params,
-#             ocean_model=ocean_model,
-#             wind_model=wind_model,
-#         )
+files = [os.path.join(input_folder, f) for f in os.listdir(input_folder)]
+for wind_model in wind_models.keys():
+    for ocean_model in ocean_models.keys():
+        print(ocean_model, wind_model)
+        multiseeding(
+            files=files,
+            output_folder=output_folder,
+            prep_params=prep_params,
+            ocean_model=ocean_model,
+            wind_model=wind_model,
+        )
 
 nc_f = "test_openberg/Model_Benchmark/output/global_GLOB_ERA5_run.nc"
 
@@ -182,6 +195,36 @@ IDs = compute_IDs(
 )
 pprint(IDs)
 
-Matches = postprocessing(nc_f, input_folder, IDs, prep_params)
+if not os.path.exists(os.path.join(output_folder, "SS_2021.csv")):
+    df2save = []
+    for nc_f in os.listdir(output_folder):
+        if ".nc" in nc_f:
+            dummy = nc_f.split("_")
+            ocean_model = dummy[1]
+            wind_model = dummy[2]
+            if ocean_model == "GLOB":
+                ocean_model = "GLOB CURRENT"
+            if wind_model == "None":
+                wind_model = "No wind"
 
-compute_SS(Matches, os.path.join("test_openberg/Model_Benchmark/output", "SS_2021.csv"))
+            print(wind_model, ocean_model)
+            nc_f = os.path.join(output_folder, nc_f)
+            Matches = postprocessing(nc_f, input_folder, IDs, prep_params)
+            if len(Matches) > 0:
+                data_SS = compute_SS(
+                    Matches, os.path.join(output_folder, "SS_2021.csv")
+                )
+                data_SS.loc[:, "ocean model"] = ocean_model
+                data_SS.loc[:, "wind model"] = wind_model
+                df2save.append(data_SS)
+
+    df2save = pd.concat(df2save, axis=0)
+    df2save.to_csv(os.path.join(output_folder, "SS_2021.csv"), index=False)
+else:
+    df2save = pd.read_csv(os.path.join(output_folder, "SS_2021.csv"))
+statistics(
+    df2save, outfolder=os.path.join("test_openberg/Model_Benchmark/output", "stats")
+)
+# polarplot(
+#     Matches, os.path.join(output_folder, "polarplot.png")
+# )

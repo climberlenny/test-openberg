@@ -6,6 +6,9 @@ from toolbox.preprocessing import preprocessing
 import pickle
 from opendrift.models.physics_methods import skillscore_liu_weissberg
 from pprint import pprint
+import matplotlib.pyplot as plt
+import pyproj
+from matplotlib.colors import ListedColormap
 
 
 def compute_IDs(files: list, input_folder: str, outfile: str, prep_params: dict):
@@ -66,7 +69,6 @@ def create_list_obs(input_folder, prep_params):
     return list_obs
 
 
-# TODO check that the match is good (the starting point should be the same)
 def postprocessing(nc_file, input_folder, IDs, prep_params, ts_output: int = 3600):
     data = Dataset(nc_file)
     mod_time = num2date(data["time"][:], units=data["time"].units)
@@ -122,12 +124,13 @@ def postprocessing(nc_file, input_folder, IDs, prep_params, ts_output: int = 360
                 _match = np.stack((match_obs, match_mod), axis=0)
                 Matches.append(_match)
 
-    Matches = np.stack(Matches, axis=0)
+    if len(Matches) > 0:
+        Matches = np.stack(Matches, axis=0)
     # pprint(Matches.shape)
     return Matches
 
 
-def compute_SS(matches, outfile):
+def compute_SS(matches, outfile, save=False):
     LON = []
     LAT = []
     SS = []
@@ -147,7 +150,108 @@ def compute_SS(matches, outfile):
 
     data = {"LON": LON, "LAT": LAT, "SS": SS}
     data = pd.DataFrame(data)
-    data.to_csv(outfile, index=False)
+    if save:
+        data.to_csv(outfile, index=False)
+    return data
 
 
-# TODO polarplot
+def statistics(data: pd.DataFrame, by=["wind model", "ocean model"], outfolder=None):
+    if not os.path.exists(outfolder):
+        os.mkdir(os.path.join(".", outfolder))
+    median = data.loc[:, ["SS"] + by].groupby(by=by).median()
+    mean = data.loc[:, ["SS"] + by].groupby(by=by).mean()
+    std = data.loc[:, ["SS"] + by].groupby(by=by).std()
+    min = data.loc[:, ["SS"] + by].groupby(by=by).min()
+    max = data.loc[:, ["SS"] + by].groupby(by=by).max()
+    combined_df = pd.concat(
+        [median, mean, std, min, max],
+        keys=["median", "mean", "std", "min", "max"],
+        axis=1,
+    )
+    combined_df.to_csv(os.path.join(outfolder, "statistics.txt"), sep="\t")
+
+    ax = data.boxplot(column="SS", by=by, figsize=(10, 6))
+
+    # Adjust font size
+    plt.xticks(fontsize=8)
+
+    # Rotate and align the x-axis labels vertically
+    xticklabels = [
+        label.get_text().replace(" ", "\n") for label in ax.get_xticklabels()
+    ]
+    ax.set_xticklabels(xticklabels)
+    plt.savefig(os.path.join(outfolder, "boxplot.png"))
+
+
+def polarplot(matches, outfile):
+    THETA = []
+    R = []
+    for match in matches:
+        obs = match[0]
+        mod = match[1]
+        lon_obs = obs[:, 0]
+        lat_obs = obs[:, 1]
+        lon_mod = mod[:, 0]
+        lat_mod = mod[:, 1]
+
+        geod = pyproj.Geod(ellps="WGS84")
+
+        # observation = ref
+        azimuth_alpha, a2, distance0 = geod.inv(
+            lon_obs[0], lat_obs[0], lon_obs[-1], lat_obs[-1]
+        )
+        vel0 = distance0 / 86400
+        # simulation
+        azimuth_betha, a2, distance1 = geod.inv(
+            lon_mod[0], lat_mod[0], lon_mod[-1], lat_mod[-1]
+        )
+        vel1 = distance1 / 86400
+
+        # calculate the coordinates in the polar plot
+        theta = (azimuth_betha - azimuth_alpha + 360) % 360
+        r = vel1 / vel0 if vel0 > 0 else 100
+        THETA.append(theta)
+        R.append(r)
+
+    colors = [
+        "#F8831C",  # orange
+        "#1C26F8",  # blue
+        "#000000",  # black
+    ]
+    # custom_cmap = ListedColormap(colors)
+    R = np.array(R)
+    THETA = np.array(THETA)
+    print(len(R))
+    fig, ax = plt.subplots(subplot_kw={"projection": "polar"})
+    ax.set_theta_zero_location("N", offset=0)
+    ax.set_theta_direction(-1)
+    ax.grid(True)
+    # Set radial ticks
+    radial_ticks = [0.2, 0.4, 0.6, 0.8, 1, 2]
+    # Set radial tick labels, keep empty strings for values less than 1
+    radial_ticklabels = ["" if tick < 1 else str(tick) for tick in radial_ticks]
+    ax.set_rticks(radial_ticks)
+    ax.set_yticklabels(radial_ticklabels)
+    # orange
+    mask = np.where(np.logical_and(R < 0.5, np.logical_and(R > 1.5, R <= 2)))[0]
+    ax.scatter(
+        THETA[mask],
+        R[mask],
+        zorder=10,
+        color=colors[0],
+        label="R < 0.5 or R in [1.5,2] ",
+    )
+    # blue
+    mask = np.where(np.logical_and(R >= 0.5, R <= 1.5))[0]
+    ax.scatter(THETA[mask], R[mask], zorder=10, color=colors[1], label="R in [0.5,1.5]")
+    # black
+    mask = np.where(R > 2)[0]
+    ax.scatter(
+        THETA[mask], R[mask] / R[mask] + 1, zorder=10, color=colors[2], label="R > 2"
+    )
+    ax.set_rmin(0)
+    ax.set_rmax(2.1)
+    ax.set_title(f"{len(R)} points")
+    plt.legend(loc="center left", bbox_to_anchor=(1, 0.1))
+    plt.savefig(outfile, bbox_inches="tight")
+    plt.show()
