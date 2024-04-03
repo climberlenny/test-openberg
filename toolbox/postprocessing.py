@@ -8,7 +8,7 @@ from opendrift.models.physics_methods import skillscore_liu_weissberg
 from pprint import pprint
 import matplotlib.pyplot as plt
 import pyproj
-from matplotlib.colors import ListedColormap
+from matplotlib.colors import ListedColormap, Normalize
 
 
 def compute_IDs(files: list, input_folder: str, outfile: str, prep_params: dict):
@@ -183,7 +183,7 @@ def statistics(data: pd.DataFrame, by=["wind model", "ocean model"], outfolder=N
     plt.savefig(os.path.join(outfolder, "boxplot.png"))
 
 
-def polarplot(matches, outfile):
+def polarplot(matches, outfile, SS=None):
     THETA = []
     R = []
     for match in matches:
@@ -218,10 +218,9 @@ def polarplot(matches, outfile):
         "#1C26F8",  # blue
         "#000000",  # black
     ]
-    # custom_cmap = ListedColormap(colors)
+
     R = np.array(R)
     THETA = np.array(THETA)
-    print(len(R))
     fig, ax = plt.subplots(subplot_kw={"projection": "polar"})
     ax.set_theta_zero_location("N", offset=0)
     ax.set_theta_direction(-1)
@@ -232,26 +231,55 @@ def polarplot(matches, outfile):
     radial_ticklabels = ["" if tick < 1 else str(tick) for tick in radial_ticks]
     ax.set_rticks(radial_ticks)
     ax.set_yticklabels(radial_ticklabels)
-    # orange
-    mask = np.where(np.logical_and(R < 0.5, np.logical_and(R > 1.5, R <= 2)))[0]
-    ax.scatter(
-        THETA[mask],
-        R[mask],
-        zorder=10,
-        color=colors[0],
-        label="R < 0.5 or R in [1.5,2] ",
-    )
-    # blue
-    mask = np.where(np.logical_and(R >= 0.5, R <= 1.5))[0]
-    ax.scatter(THETA[mask], R[mask], zorder=10, color=colors[1], label="R in [0.5,1.5]")
-    # black
-    mask = np.where(R > 2)[0]
-    ax.scatter(
-        THETA[mask], R[mask] / R[mask] + 1, zorder=10, color=colors[2], label="R > 2"
-    )
+    if SS is None:
+        # orange
+        mask = np.where(np.logical_and(R < 0.5, np.logical_and(R > 1.5, R <= 2)))[0]
+        ax.scatter(
+            THETA[mask],
+            R[mask],
+            zorder=10,
+            color=colors[0],
+            label="R < 0.5 or R in [1.5,2] ",
+        )
+        # blue
+        mask = np.where(np.logical_and(R >= 0.5, R <= 1.5))[0]
+        ax.scatter(
+            THETA[mask], R[mask], zorder=10, color=colors[1], label="R in [0.5,1.5]"
+        )
+        # black
+        mask = np.where(R > 2)[0]
+        ax.scatter(
+            THETA[mask],
+            R[mask] / R[mask] + 1,
+            zorder=10,
+            color=colors[2],
+            label="R > 2",
+        )
+    else:
+        cmap = plt.cm.viridis
+        norm = Normalize(vmin=0, vmax=1)  # Assuming SS values range from 0 to 1
+        mask = np.where(R <= 2)[0]
+        colors = cmap(norm(SS[mask]))
+        ax.scatter(
+            THETA[mask],
+            R[mask],
+            zorder=10,
+            color=colors,
+        )
+        mask = np.where(R > 2)[0]
+        colors = cmap(norm(SS[mask]))
+        ax.scatter(
+            THETA[mask],
+            R[mask] / R[mask] + 1,
+            zorder=10,
+            color=colors,
+        )
+    cbar = plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=cmap), ax=ax)
+    cbar.set_label("SS Value")
     ax.set_rmin(0)
     ax.set_rmax(2.1)
     ax.set_title(f"{len(R)} points")
-    plt.legend(loc="center left", bbox_to_anchor=(1, 0.1))
+    if SS is None:
+        plt.legend(loc="center left", bbox_to_anchor=(1, 0.1))
     plt.savefig(outfile, bbox_inches="tight")
-    plt.show()
+    # plt.show()

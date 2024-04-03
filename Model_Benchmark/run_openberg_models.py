@@ -216,6 +216,13 @@ if not os.path.exists(os.path.join(output_folder, "SS_2021.csv")):
                 )
                 data_SS.loc[:, "ocean model"] = ocean_model
                 data_SS.loc[:, "wind model"] = wind_model
+                polarplot(
+                    Matches,
+                    os.path.join(
+                        output_folder, f"polarplot_{wind_model}_{ocean_model}.png"
+                    ),
+                    data_SS.loc[:, "SS"],
+                )
                 df2save.append(data_SS)
 
     df2save = pd.concat(df2save, axis=0)
@@ -225,6 +232,3 @@ else:
 statistics(
     df2save, outfolder=os.path.join("test_openberg/Model_Benchmark/output", "stats")
 )
-# polarplot(
-#     Matches, os.path.join(output_folder, "polarplot.png")
-# )
