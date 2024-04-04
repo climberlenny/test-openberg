@@ -212,6 +212,7 @@ def preprocessing(
     minimal_duration=timestep["1j"],
     velocity_thresh=10,
     No_column=False,
+    Cut=True,
 ):
     """Apply the differents above functions one by one
 
@@ -236,9 +237,12 @@ def preprocessing(
         date_format=date_format,
         No_column=No_column,
     )
-    data = filt_timegap(data, time_thresh)
-    data = filt_dist(data, dist_thresh)
-    dfs = cut_data(data, minimal_duration)
+    if Cut:
+        data = filt_timegap(data, time_thresh)
+        data = filt_dist(data, dist_thresh)
+        dfs = cut_data(data, minimal_duration)
+    else:
+        dfs = [data]
     dfs = [interpolation(df, timestep_interpolation, velocity_thresh) for df in dfs]
 
     if len(dfs) == 1:
