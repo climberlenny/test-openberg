@@ -50,9 +50,11 @@ def match_ID_obs(line: int, IDs: list, files: list):
     return files[wh], real_ID
 
 
-def create_list_obs(input_folder, prep_params):
+def create_list_obs(input_folder, prep_params, files=None):
     list_obs = []
-    for file in os.listdir(input_folder):
+    if files is None:
+        files = os.listdir(input_folder)
+    for file in files:
         # print(f"filename : {file}")
         with open(os.path.join(input_folder, file)) as f:
             obs = preprocessing(
@@ -69,13 +71,22 @@ def create_list_obs(input_folder, prep_params):
     return list_obs
 
 
-def postprocessing(nc_file, input_folder, IDs, prep_params, ts_output: int = 3600):
-    data = Dataset(nc_file)
+def postprocessing(
+    nc_files, input_folder, IDs, prep_params, ts_output: int = 3600, files=None
+):
+    group = list(range(0, len(files), 100))
+    group.append(None)
+    f = 0
+    data = Dataset(nc_files[f])
     mod_time = num2date(data["time"][:], units=data["time"].units)
     lon = data["lon"][:].data
     lat = data["lat"][:].data
-    print(f"{len(lon)} seeds")
-    list_obs = create_list_obs(input_folder, prep_params)
+    previous_seed_number = 0
+    new_seed_number = len(lon)
+    print(f"{new_seed_number} seeds")
+    list_obs = create_list_obs(input_folder, prep_params, files=files)
+    print(len(list_obs))
+    # assert len(list_obs) == len(IDs)
     Matches = []
     for i, sub_obs in enumerate(list_obs):
         i_lim0 = 0
@@ -102,9 +113,20 @@ def postprocessing(nc_file, input_folder, IDs, prep_params, ts_output: int = 360
             if len(sub_df) < int(86400 / ts_output + 1):
                 print("Warning : obs too short !")
                 continue
-            indices_mod = np.where(lon[j] < 361)[0]
-            sub_lon = (lon[j, indices_mod] + 360) % 360
-            sub_lat = lat[j, indices_mod]
+            if j - previous_seed_number < new_seed_number:
+                indices_mod = np.where(lon[j - previous_seed_number] < 361)[0]
+            else:
+                f += 1
+                data = Dataset(nc_files[f])
+                mod_time = num2date(data["time"][:], units=data["time"].units)
+                lon = data["lon"][:].data
+                lat = data["lat"][:].data
+                previous_seed_number = new_seed_number
+                new_seed_number = len(lon)
+                print(f"{new_seed_number} seeds")
+                indices_mod = np.where(lon[j - previous_seed_number] < 361)[0]
+            sub_lon = (lon[j - previous_seed_number, indices_mod] + 360) % 360
+            sub_lat = lat[j - previous_seed_number, indices_mod]
             sub_time = mod_time[indices_mod]
             test = np.where(sub_lon < 361)[0]
             # print(sub_lon)
@@ -183,6 +205,7 @@ def statistics(data: pd.DataFrame, by=["wind model", "ocean model"], outfolder=N
     plt.savefig(os.path.join(outfolder, "boxplot.png"))
 
 
+# TODO density plot in polar coordinate
 def polarplot(matches, outfile, SS=None):
     THETA = []
     R = []
@@ -231,30 +254,34 @@ def polarplot(matches, outfile, SS=None):
     radial_ticklabels = ["" if tick < 1 else str(tick) for tick in radial_ticks]
     ax.set_rticks(radial_ticks)
     ax.set_yticklabels(radial_ticklabels)
+
     if SS is None:
+
+        mask1 = np.where(np.logical_or(R < 0.5, np.logical_and(R > 1.5, R <= 2)))[0]
+        mask2 = np.where(np.logical_and(R >= 0.5, R <= 1.5))[0]
+        mask3 = np.where(R > 2)[0]
         # orange
-        mask = np.where(np.logical_and(R < 0.5, np.logical_and(R > 1.5, R <= 2)))[0]
         ax.scatter(
-            THETA[mask],
-            R[mask],
+            THETA[mask1],
+            R[mask1],
             zorder=10,
             color=colors[0],
             label="R < 0.5 or R in [1.5,2] ",
         )
         # blue
-        mask = np.where(np.logical_and(R >= 0.5, R <= 1.5))[0]
         ax.scatter(
-            THETA[mask], R[mask], zorder=10, color=colors[1], label="R in [0.5,1.5]"
+            THETA[mask2], R[mask2], zorder=10, color=colors[1], label="R in [0.5,1.5]"
         )
         # black
-        mask = np.where(R > 2)[0]
         ax.scatter(
-            THETA[mask],
-            R[mask] / R[mask] + 1,
+            THETA[mask3],
+            R[mask3] / R[mask3] + 1,
             zorder=10,
             color=colors[2],
             label="R > 2",
         )
+
+        plt.legend(loc="center left", bbox_to_anchor=(1, 0.1))
     else:
         cmap = plt.cm.viridis
         norm = Normalize(vmin=0, vmax=1)  # Assuming SS values range from 0 to 1
@@ -274,12 +301,74 @@ def polarplot(matches, outfile, SS=None):
             zorder=10,
             color=colors,
         )
-    cbar = plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=cmap), ax=ax)
-    cbar.set_label("SS Value")
+        cbar = plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=cmap), ax=ax)
+        cbar.set_label("SS Value")
     ax.set_rmin(0)
     ax.set_rmax(2.1)
     ax.set_title(f"{len(R)} points")
-    if SS is None:
-        plt.legend(loc="center left", bbox_to_anchor=(1, 0.1))
     plt.savefig(outfile, bbox_inches="tight")
     # plt.show()
+
+
+def polar_to_cartesian(theta, r):
+    """Convert polar coordinates to Cartesian coordinates."""
+    x = r * np.cos(np.radians(theta))
+    y = r * np.sin(np.radians(theta))
+    return x, y
+
+
+def polarplot2(matches, outfile, SS=None):
+    THETA = []
+    R = []
+    for match in matches:
+        obs = match[0]
+        mod = match[1]
+        lon_obs = obs[:, 0]
+        lat_obs = obs[:, 1]
+        lon_mod = mod[:, 0]
+        lat_mod = mod[:, 1]
+
+        geod = pyproj.Geod(ellps="WGS84")
+
+        # observation = ref
+        azimuth_alpha, a2, distance0 = geod.inv(
+            lon_obs[0], lat_obs[0], lon_obs[-1], lat_obs[-1]
+        )
+        vel0 = distance0 / 86400
+        # simulation
+        azimuth_betha, a2, distance1 = geod.inv(
+            lon_mod[0], lat_mod[0], lon_mod[-1], lat_mod[-1]
+        )
+        vel1 = distance1 / 86400
+
+        # calculate the coordinates in the polar plot
+        theta = (azimuth_betha - azimuth_alpha + 360) % 360
+        r = vel1 / vel0 if vel0 > 0 else 10
+        THETA.append(theta)
+        R.append(r)
+
+    R = np.array(R)
+    THETA = np.array(THETA)
+    outsiders = (R > 5).sum()
+    # Convert polar coordinates to Cartesian coordinates
+    X, Y = polar_to_cartesian(THETA, R)
+
+    # Create a 2D histogram (hexbin) to bin the data
+    bins = 1000
+
+    # Plot the density
+    fig, ax = plt.subplots()
+    hb = ax.hexbin(X, Y, cmap="viridis", gridsize=1000, bins="log")
+    plt.colorbar(hb, label="Density")
+    circle = plt.Circle(
+        (0, 0), radius=1, color="none", linestyle="dashed", edgecolor="black", alpha=0.5
+    )
+    ax.add_artist(circle)
+    ax.set_xlim([-5, 5])
+    ax.set_ylim([-5, 5])
+    plt.title(f"Polar Plot \n {outsiders} points out of plot domain")
+    plt.gca().set_aspect(
+        "equal", adjustable="box"
+    )  # Set aspect ratio to make it look polar
+    plt.savefig(outfile, bbox_inches="tight")
+    plt.show()

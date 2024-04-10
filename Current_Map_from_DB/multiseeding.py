@@ -14,8 +14,6 @@ output_folder = "test_openberg/Current_Map_from_DB/output"
 
 input_folder = "DATA/FOR_LENNY/DB_csv2"
 
-dffiles = pd.read_csv("LENNY/6-march/sorted_files.csv")
-files = dffiles.loc[:, "name"].values
 
 # sorting the csv files by date
 if not os.path.exists(
@@ -61,7 +59,8 @@ if not os.path.exists(
         os.path.join("test_openberg/Current_Map_from_DB", "sorted_files.csv"),
         index=False,
     )
-
+dffiles = pd.read_csv("test_openberg/Current_Map_from_DB/sorted_files.csv")
+files = dffiles.loc[:, "files"].values
 
 # Copernicus id and password
 with open("LENNY/Copernicus.txt") as f:
@@ -151,7 +150,7 @@ def multiseeding(
             )
             t2 = time()
             print(t2 - t1)
-            o.plot(fast=True)
+            # o.plot(fast=True)
         else:
             print("the output file already exists")
             if Clean:
@@ -181,8 +180,7 @@ prep_params = {
     "ts_interp": 3600,
     "No_column": False,
 }
-
-files = [os.path.join(input_folder, f) for f in os.listdir(input_folder)]
+files = [os.path.join(input_folder, file) for file in files]
 for ocean_model in ocean_models.keys():
     print(ocean_model)
     multiseeding(

@@ -116,3 +116,54 @@ for file in files:
         df = pd.DataFrame(data=df)
         df.to_csv(os.path.join(dir_csv, f"{ptf_code}_DB.csv"), index=False)
     data.close()
+
+
+def cut_data(df: pd.DataFrame, threshold: int = 7) -> list[pd.DataFrame]:
+    dfs = []
+
+    df["date"] = pd.to_datetime(df["date"], format="mixed")
+    df = df.sort_values(by=["date"])
+    # Find indices where timedelta exceeds N days
+    indices = df.index[df["date"].diff() > pd.Timedelta(days=threshold)]
+
+    # Split DataFrame based on jumps
+    dfs = []
+    start_idx = 0
+    for end_idx in indices:
+        dfs.append(df.iloc[start_idx:end_idx])
+        start_idx = end_idx
+    dfs.append(df.iloc[start_idx:])
+    return dfs
+
+
+dir_csv = "DATA/FOR_LENNY/DB_csv2"
+
+files = os.listdir(dir_csv)
+for file in files:
+    path = os.path.join(dir_csv, file)
+    data = pd.read_csv(path)
+
+    dfs = cut_data(data)
+
+    if len(dfs) > 1:
+        os.remove(path)
+        print()
+        print(f"cutting {file}")
+        print()
+        for i, sub_df in enumerate(dfs):
+            start = sub_df.loc[sub_df.index[0], "date"]
+            end = sub_df.loc[sub_df.index[-1], "date"]
+            duration = (end - start).days
+            print(f"DataFrame {i+1} : {duration} days")
+            # print(sub_df)
+            if duration > 2:
+                if not os.path.exists(
+                    os.path.join(dir_csv, file.replace(".csv", f"_{i+1}.csv"))
+                ):
+                    sub_df.to_csv(
+                        os.path.join(dir_csv, file.replace(".csv", f"_{i+1}.csv")),
+                        index=False,
+                    )
+                print(f"save sub df {i+1}")
+            else:
+                print(f"delete sub df {i+1}")

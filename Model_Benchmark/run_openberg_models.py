@@ -91,7 +91,7 @@ def multiseeding(
     if not os.path.exists(
         os.path.join(output_folder, f"global_{ocean_model}_{wind_model}_run.nc")
     ):
-        o = OpenBerg(loglevel=0)
+        o = OpenBerg(loglevel=20)
         for om in ocean_models[ocean_model]:
             readers_current = copernicusmarine.open_dataset(
                 dataset_id=om,
