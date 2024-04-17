@@ -9,6 +9,10 @@ from pprint import pprint
 import matplotlib.pyplot as plt
 import pyproj
 from matplotlib.colors import ListedColormap, Normalize
+import cartopy.crs as ccrs
+import cartopy.feature as cfeature
+import matplotlib.ticker as mticker
+from scipy.stats import circmean
 
 
 def compute_IDs(files: list, input_folder: str, outfile: str, prep_params: dict):
@@ -50,7 +54,11 @@ def match_ID_obs(line: int, IDs: list, files: list):
     return files[wh], real_ID
 
 
-def create_list_obs(input_folder, prep_params, files=None):
+def create_list_obs(input_folder, prep_params, files=None, outfile=None):
+    if os.path.exists(outfile):
+        with open(outfile, "rb") as f:
+            list_obs = pickle.load(f)
+        return list_obs
     list_obs = []
     if files is None:
         files = os.listdir(input_folder)
@@ -68,14 +76,24 @@ def create_list_obs(input_folder, prep_params, files=None):
             )
         for i in range(len(obs)):
             list_obs.append(obs[i])
+
+    with open(outfile, "wb") as f:
+        pickle.dump(list_obs, f)
     return list_obs
 
 
 def postprocessing(
-    nc_files, input_folder, IDs, prep_params, ts_output: int = 3600, files=None
+    nc_files,
+    input_folder,
+    IDs,
+    prep_params,
+    ts_output: int = 3600,
+    files=None,
+    outfile=None,
 ):
-    group = list(range(0, len(files), 100))
-    group.append(None)
+    if not files is None:
+        group = list(range(0, len(files), 100))
+        group.append(None)
     f = 0
     data = Dataset(nc_files[f])
     mod_time = num2date(data["time"][:], units=data["time"].units)
@@ -84,7 +102,7 @@ def postprocessing(
     previous_seed_number = 0
     new_seed_number = len(lon)
     print(f"{new_seed_number} seeds")
-    list_obs = create_list_obs(input_folder, prep_params, files=files)
+    list_obs = create_list_obs(input_folder, prep_params, files=files, outfile=outfile)
     print(len(list_obs))
     # assert len(list_obs) == len(IDs)
     Matches = []
@@ -121,7 +139,7 @@ def postprocessing(
                 mod_time = num2date(data["time"][:], units=data["time"].units)
                 lon = data["lon"][:].data
                 lat = data["lat"][:].data
-                previous_seed_number = new_seed_number
+                previous_seed_number += new_seed_number
                 new_seed_number = len(lon)
                 print(f"{new_seed_number} seeds")
                 indices_mod = np.where(lon[j - previous_seed_number] < 361)[0]
@@ -131,6 +149,8 @@ def postprocessing(
             test = np.where(sub_lon < 361)[0]
             # print(sub_lon)
             # pprint(sub_time)
+            if np.where(np.logical_and(sub_lat > 66, sub_lat < 69))[0]:
+                print("DEBUG : ", sub_lat)
             if len(test) < int(86400 / ts_output + 1):
                 print("Warning : simulation too short !")
                 pass
@@ -156,6 +176,8 @@ def compute_SS(matches, outfile, save=False):
     LON = []
     LAT = []
     SS = []
+    # plt.hist(matches[:, 0, :, 1].flatten(), bins=100)
+    # plt.show()
     for match in matches:
         obs = match[0]
         mod = match[1]
@@ -177,32 +199,55 @@ def compute_SS(matches, outfile, save=False):
     return data
 
 
-def statistics(data: pd.DataFrame, by=["wind model", "ocean model"], outfolder=None):
+def statistics(
+    data: pd.DataFrame, by=["wind model", "ocean model"], outfolder=None, **kwargs
+):
     if not os.path.exists(outfolder):
         os.mkdir(os.path.join(".", outfolder))
-    median = data.loc[:, ["SS"] + by].groupby(by=by).median()
-    mean = data.loc[:, ["SS"] + by].groupby(by=by).mean()
-    std = data.loc[:, ["SS"] + by].groupby(by=by).std()
-    min = data.loc[:, ["SS"] + by].groupby(by=by).min()
-    max = data.loc[:, ["SS"] + by].groupby(by=by).max()
-    combined_df = pd.concat(
-        [median, mean, std, min, max],
-        keys=["median", "mean", "std", "min", "max"],
-        axis=1,
-    )
-    combined_df.to_csv(os.path.join(outfolder, "statistics.txt"), sep="\t")
+    if not by is None:
+        median = data.loc[:, ["SS"] + by].groupby(by=by).median()
+        mean = data.loc[:, ["SS"] + by].groupby(by=by).mean()
+        std = data.loc[:, ["SS"] + by].groupby(by=by).std()
+        _min = data.loc[:, ["SS"] + by].groupby(by=by).min()
+        _max = data.loc[:, ["SS"] + by].groupby(by=by).max()
+        combined_df = pd.concat(
+            [median, mean, std, _min, _max],
+            keys=["median", "mean", "std", "min", "max"],
+            axis=1,
+        )
+        combined_df.to_csv(os.path.join(outfolder, "statistics.txt"), sep="\t")
 
-    ax = data.boxplot(column="SS", by=by, figsize=(10, 6))
+        ax = data.boxplot(column="SS", by=by, figsize=(10, 6), **kwargs)
 
-    # Adjust font size
-    plt.xticks(fontsize=8)
+        # Adjust font size
+        plt.xticks(fontsize=8)
 
-    # Rotate and align the x-axis labels vertically
-    xticklabels = [
-        label.get_text().replace(" ", "\n") for label in ax.get_xticklabels()
-    ]
-    ax.set_xticklabels(xticklabels)
-    plt.savefig(os.path.join(outfolder, "boxplot.png"))
+        # Rotate and align the x-axis labels vertically
+        xticklabels = [
+            label.get_text().replace(" ", "\n") for label in ax.get_xticklabels()
+        ]
+        ax.set_xticklabels(xticklabels)
+        plt.savefig(os.path.join(outfolder, "boxplot.png"))
+    else:
+        median = data.loc[:, ["SS"]].median()
+        mean = data.loc[:, ["SS"]].mean()
+        std = data.loc[:, ["SS"]].std()
+        _min = data.loc[:, ["SS"]].min()
+        _max = data.loc[:, ["SS"]].max()
+        stats = {"median": median, "mean": mean, "std": std, "min": _min, "max": _max}
+        stats = pd.DataFrame(stats)
+        stats.to_csv(os.path.join(outfolder, "statistics.txt"), sep="\t")
+        ax = data.boxplot(column="SS", figsize=(10, 6))
+
+        # Adjust font size
+        plt.xticks(fontsize=8)
+
+        # Rotate and align the x-axis labels vertically
+        xticklabels = [
+            label.get_text().replace(" ", "\n") for label in ax.get_xticklabels()
+        ]
+        ax.set_xticklabels(xticklabels)
+        plt.savefig(os.path.join(outfolder, "boxplot.png"))
 
 
 # TODO density plot in polar coordinate
@@ -312,8 +357,8 @@ def polarplot(matches, outfile, SS=None):
 
 def polar_to_cartesian(theta, r):
     """Convert polar coordinates to Cartesian coordinates."""
-    x = r * np.cos(np.radians(theta))
-    y = r * np.sin(np.radians(theta))
+    x = r * np.cos(theta)
+    y = r * np.sin(theta)
     return x, y
 
 
@@ -348,27 +393,189 @@ def polarplot2(matches, outfile, SS=None):
         R.append(r)
 
     R = np.array(R)
+    r_avg_with_outsiders = np.mean(R)
     THETA = np.array(THETA)
-    outsiders = (R > 5).sum()
+    theta_avg_with_outsiders = circmean(THETA)
+    print(theta_avg_with_outsiders, r_avg_with_outsiders, np.max(R))
+    # print(len(SS),len(R))
+    outsiders = (R > 2).sum()
     # Convert polar coordinates to Cartesian coordinates
-    X, Y = polar_to_cartesian(THETA, R)
-
-    # Create a 2D histogram (hexbin) to bin the data
-    bins = 1000
+    X, Y = polar_to_cartesian(np.pi / 2 - np.radians(THETA[R <= 2]), R[R <= 2])
+    x_outsiders, y_outsiders = polar_to_cartesian(
+        np.pi / 2 - np.radians(theta_avg_with_outsiders), r_avg_with_outsiders
+    )
+    r_avg_insiders = np.mean(R[R <= 2])
+    theta_avg_insiders = circmean(THETA[R <= 2])
+    x_insiders, y_insiders = polar_to_cartesian(
+        np.pi / 2 - np.radians(theta_avg_insiders), r_avg_insiders
+    )
 
     # Plot the density
-    fig, ax = plt.subplots()
-    hb = ax.hexbin(X, Y, cmap="viridis", gridsize=1000, bins="log")
+    fig, ax = plt.subplots(figsize=(8, 8))
+    hb = ax.hexbin(X, Y, cmap="viridis", gridsize=50, bins="log")
     plt.colorbar(hb, label="Density")
-    circle = plt.Circle(
-        (0, 0), radius=1, color="none", linestyle="dashed", edgecolor="black", alpha=0.5
+    ax.scatter(0, 1, marker="x", s=200, c="r", label="target")
+    ax.scatter(
+        x_insiders,
+        y_insiders,
+        marker="o",
+        s=50,
+        c="r",
+        label=f"mean without outsiders ({np.round(r_avg_insiders,1)},{np.round(theta_avg_insiders,1)})",
     )
-    ax.add_artist(circle)
-    ax.set_xlim([-5, 5])
-    ax.set_ylim([-5, 5])
+    ax.plot(
+        np.linspace(-2, 2, 100),
+        np.tan(np.pi / 2 - np.deg2rad(theta_avg_insiders)) * np.linspace(-2, 2, 100),
+        color="k",
+        linestyle="--",
+        label=f"average deviation : {np.round(theta_avg_insiders)}",
+    )
+    ax.set_xlim([-3, 3])
+    ax.set_ylim([-3, 3])
     plt.title(f"Polar Plot \n {outsiders} points out of plot domain")
+    plt.legend(loc="lower left")
     plt.gca().set_aspect(
         "equal", adjustable="box"
     )  # Set aspect ratio to make it look polar
     plt.savefig(outfile, bbox_inches="tight")
+    plt.show()
+
+
+def plot_current_map(data, outfolder, model):
+    colors = [
+        "#f7f7f7",
+        "#542788",
+        "#998ec3",
+        "#d8daeb",
+        "#fee0b6",
+        "#f1a340",
+        "#b35806",
+    ]
+    custom_cmap = ListedColormap(colors)
+
+    data.loc[:, "LON"] = (data.loc[:, "LON"] + 360) % 360
+    data = data.sort_values(by="LON")
+    lon = data.loc[:, "LON"].values
+    lat = data.loc[:, "LAT"].values
+    SkillScore = data.loc[:, "SS"].values
+
+    # plt.hist(lat,bins=100)
+    # plt.show()
+
+    fig, ax = plt.subplots(
+        subplot_kw={"projection": ccrs.NorthPolarStereo()},
+        figsize=(8, 8),
+        dpi=200,
+    )
+    ax.add_feature(cfeature.COASTLINE)
+    ax.add_feature(cfeature.LAND)
+    gl = ax.gridlines(
+        draw_labels=False, linewidth=0.5, color="gray", alpha=0.5, linestyle="dotted"
+    )
+    gl.right_labels = False
+
+    # Define the number of chunks
+    num_chunks = 100
+    # Define radius
+    radius = 0.5
+
+    # Calculate the number of lon points in each chunk
+    chunk_size = len(lon) // num_chunks
+    # Iterate over chunks
+    for i in range(num_chunks):
+        # Calculate the start and end indices for the chunk
+        start_idx = i * chunk_size
+        end_idx = (i + 1) * chunk_size if i < num_chunks - 1 else len(lon)
+
+        # Extract lon and lat values for the chunk
+        lon_chunk = lon[start_idx:end_idx]
+        lmin = lon_chunk.min()
+        lmax = lon_chunk.max()
+        # if lmin < l1 - 20 or lmax > l2 + 20:
+        #     continue
+        lat_chunk = lat[start_idx:end_idx]
+        ss_chunk = SkillScore[start_idx:end_idx]
+
+        # Calcul des limites
+        lon_min = max(0, lon_chunk.min() - 1)
+        lon_max = min(360, lon_chunk.max() + 1)
+        lat_min = max(-90, lat_chunk.min() - 1)
+        lat_max = min(90, lat_chunk.max() + 1)
+        grid_resolution = 0.1
+
+        # Create lon-lat grid for the chunk
+        lon_grid, lat_grid = np.meshgrid(
+            np.arange(lon_min, lon_max, grid_resolution),
+            np.arange(lat_min, lat_max, grid_resolution),
+        )
+        # Calcul des distances à tous les points de données pour le chunk
+        distances_chunk = np.sqrt(
+            (lon_chunk[:, None, None] - lon_grid) ** 2
+            + (lat_chunk[:, None, None] - lat_grid) ** 2
+        )
+        # Initialize third grid
+        third_grid = np.full(lon_grid.shape, np.nan)
+
+        # Vérifier si un point de données est dans le rayon pour chaque point de la grille
+        within_radius = distances_chunk <= radius
+        mask_isData = np.any(within_radius, axis=0)
+        # print(np.where(mask_isData))
+
+        average_SS = np.nansum(
+            np.reshape(ss_chunk, (len(ss_chunk), 1, 1)) * within_radius, axis=0
+        ) / np.nansum(within_radius, axis=0)
+        # print(np.nanmin(average_SS), np.nanmax(average_SS), np.nanmean(average_SS))
+
+        thresholds = [0, 0.005, 0.1, 0.2, 0.3, 0.5, 1]
+
+        # Assigner les valeurs en fonction des seuils
+        for i, (threshold1, threshold2) in enumerate(
+            zip(thresholds[:-1], thresholds[1:])
+        ):
+            if i < 3:
+                inThreshold = np.logical_and(
+                    average_SS < threshold2, threshold1 < average_SS
+                )
+                third_grid[mask_isData & inThreshold] = i + 1
+            else:
+                inThreshold = np.logical_and(
+                    average_SS < threshold2, threshold1 < average_SS
+                )
+                third_grid[mask_isData & inThreshold] = i + 1
+
+        mp = plt.pcolormesh(
+            lon_grid,
+            lat_grid,
+            third_grid,
+            cmap=custom_cmap,
+            transform=ccrs.PlateCarree(),
+            vmin=0,
+            vmax=6,
+        )
+
+    plt.colorbar(
+        mappable=mp,
+        ax=ax,
+        ticks=[0, 1, 2, 3, 4, 5, 6],
+        format=mticker.FixedFormatter(
+            [
+                "No data",
+                "SS < 0.005",
+                "0.005 <= SS < 0.1",
+                "0.1 <= SS < 0.2",
+                "0.2 <= SS < 0.3",
+                "0.3 <= SS < 0.5",
+                "0.5 <= SS <= 1",
+            ]
+        ),
+    )
+    ax.set_title(f"{model} SkillScore Map")
+    # if l1 == 180:
+    #     l1 = 181
+    ax.set_extent([0, 360, 60, 90], ccrs.PlateCarree())
+    plt.savefig(
+        os.path.join(outfolder, f"{model}_SS_map_global.png"),
+        bbox_inches="tight",
+        pad_inches=0.3,
+    )
     plt.show()
