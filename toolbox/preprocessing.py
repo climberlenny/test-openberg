@@ -65,7 +65,7 @@ def formatting(
     data["time"] = pd.to_datetime(data["time"], format=date_format)
     data = data.sort_values(by=["time"])
     data = data.drop_duplicates(subset=["time"])
-
+    data["Longitude"] = data["Longitude"].values % 360
     return data
 
 
@@ -97,13 +97,13 @@ def Dist2CoastLine(x, y, D2C_dataset: str):
         list : distances
     """
     Dist = Dataset(D2C_dataset)
-    dist = Dist["dist"][:3001].data
+    dist = Dist["dist"][:5001].data
     lon = Dist["lon"][:].data
-    lat = Dist["lat"][:3001].data
+    lat = Dist["lat"][:5001].data
     interp = Nearest2DInterpolator(
         lon,
         lat,
-        x,
+        ((x + 180) % 360) - 180,
         y,
     )
     dist = interp(dist[::-1, ::])
@@ -131,7 +131,7 @@ def filt_dist(data: pd.DataFrame, threshold: int) -> pd.DataFrame:
     return data
 
 
-def cut_data(data: pd.DataFrame, minimal_duration: int = 86400) -> pd.DataFrame:
+def cut_data(data: pd.DataFrame, minimal_duration: int = 86400) -> list[pd.DataFrame]:
     """Cut the dataframe in dataframes according to cutting label computed previously by filt_dist and filt_time
 
     Args:
@@ -237,13 +237,16 @@ def preprocessing(
         date_format=date_format,
         No_column=No_column,
     )
+    if any(np.logical_and(data["Latitude"].values > 65, data["Latitude"].values < 68)):
+        pass
     if Cut:
         data = filt_timegap(data, time_thresh)
         data = filt_dist(data, dist_thresh)
         dfs = cut_data(data, minimal_duration)
     else:
         dfs = [data]
-    dfs = [interpolation(df, timestep_interpolation, velocity_thresh) for df in dfs]
+    if not timestep_interpolation is None:
+        dfs = [interpolation(df, timestep_interpolation, velocity_thresh) for df in dfs]
 
     if len(dfs) == 1:
         print("No cut in the file")

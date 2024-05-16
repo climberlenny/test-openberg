@@ -127,8 +127,8 @@ if not os.path.exists(
         outfile=os.path.join("test_openberg/test_acc/output", "model_acc_SDRF.nc"),
     )
 else:
-    o4 = IcebergDrift(wave_model="SDRF")
-    o4.io_import_file(
+    o5 = IcebergDrift(wave_model="SDRF")
+    o5.io_import_file(
         os.path.join("test_openberg/test_acc/output", "model_acc_SDRF.nc")
     )
 

@@ -9,7 +9,10 @@ import pyproj
 import shutil
 import pandas as pd
 import cftime
-
+from toolbox.preprocessing import Nearest2DInterpolator
+from tqdm import tqdm
+from scipy.stats import circmean
+from pprint import pprint
 
 dirname = "DATA/FOR_LENNY/DRIFTERS"
 dir2 = "DATA/FOR_LENNY/removed_drifters"
@@ -18,16 +21,61 @@ dir_csv = "DATA/FOR_LENNY/DB_csv2"
 files = os.listdir(dirname)
 
 
+def access_ice_mask(ice_folder, year, month):
+    filename = f"AVG_ice_conc_{year}_{str(month).zfill(2)}.nc"
+    file_path = os.path.join(ice_folder, filename)
+    if os.path.isfile(file_path):
+        return file_path
+    else:
+        return f"File '{filename}' not found in directory '{ice_folder}'."
+
+
+def check_ice_buoys(mask, lon, lat):
+    if lat > 80:
+        pass
+    # interp = Nearest2DInterpolator(mask[0], mask[1], np.array([lon]), np.array([lat]))
+    index = np.abs(mask[0] - lon) + np.abs(mask[1] - lat)
+    jj, ii = np.unravel_index(
+        index.argmin(), index.shape
+    )  # interpolation nearest neighbor
+    ice_conc = mask[2][jj, ii]
+    if np.isnan(ice_conc) or ice_conc < 0:
+        return False
+    elif ice_conc >= 0.15:
+        return True
+    else:
+        return False
+
+
+def preparing_ice_mask(filename, year):
+    reader = nc.Dataset(filename)
+
+    if year >= 2021:
+        lon = reader["longitude"][:].data
+        lat = reader["latitude"][:].data
+        lon, lat = np.meshgrid(lon, lat)
+        ice_conc = reader["ice_conc"][:].data
+    else:
+        lon = reader["lon"][:].data
+        lat = reader["lat"][:].data
+        ice_conc = reader["ice_conc"][0].data
+
+    return (lon, lat, ice_conc)
+
+
+def circular_mean(x):
+    return round(np.rad2deg(circmean(np.deg2rad(x))), 2)
+
+
 stats = {
     "name": {},
     "src_ptf_cat": {},
     "Nvalid": 0,
     "tot": 0,
 }
-for file in files:
+for file in tqdm(files):
 
     data = nc.Dataset(os.path.join(dirname, file))
-
     ptf_code = data.platform_code
     src_ptf_cat = data.source_platform_category_code
     ptf_name = data.platform_name
@@ -78,9 +126,42 @@ for file in files:
     pos_mask = position_qc == 1
     mask = np.logical_and(time_mask, pos_mask)
 
-    lon = data["LONGITUDE"][mask].data
+    lon = (data["LONGITUDE"][mask].data + 360) % 360
     lat = data["LATITUDE"][mask].data
-
+    time = pd.DatetimeIndex(
+        nc.num2date(
+            data["TIME"][mask],
+            units=data["TIME"].units,
+            only_use_cftime_datetimes=False,
+            only_use_python_datetimes=True,
+        )
+    )
+    df = pd.DataFrame(
+        {"lon": lon, "lat": lat, "month": time.month, "year": time.year}, index=time
+    )
+    df_per_month = df.groupby(["month", "year"])[["lon", "lat"]].agg(circular_mean)
+    df_per_month.loc[:, "lon"] = df_per_month.loc[:, "lon"] % 360
+    df_per_month.loc[:, "lon"] = (
+        (df_per_month.loc[:, "lon"] + 180) % 360
+    ) - 180  # convert into range (-180,180)
+    # pprint(df_per_month)
+    # stop
+    for my in df_per_month.index:
+        c = False
+        month, year = my
+        ice_file = access_ice_mask("DATA/FOR_LENNY/Sea_ice", year, month)
+        mask_ice = preparing_ice_mask(ice_file, year)
+        isinice = check_ice_buoys(
+            mask_ice, df_per_month.loc[my, "lon"], df_per_month.loc[my, "lat"]
+        )
+        if isinice:
+            print("trajectory in Ice !")
+            data.close()
+            shutil.move(os.path.join(dirname, file), os.path.join(dir2, file))
+            c = True
+            break
+    if c:
+        continue
     if len(lon) < 2:
         print("trajectory too short in space !")
         data.close()
@@ -97,7 +178,6 @@ for file in files:
         stats["src_ptf_cat"][src_ptf_cat] = 1
 
     stats["Nvalid"] += 1
-
     # save trajectory in a csv file
     time = data["TIME"][mask].data
     time = pd.to_datetime(

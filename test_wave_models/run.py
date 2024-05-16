@@ -6,15 +6,11 @@ from opendrift.models.openberg import OpenBerg
 from opendrift.models.openberg_acc import IcebergDrift
 from opendrift.readers import reader_netCDF_CF_generic
 from datetime import timedelta
-import cartopy.crs as ccrs
-import cartopy.feature as cfeature
-import matplotlib.pyplot as plt
 from toolbox.preprocessing import preprocessing
 from toolbox.postprocessing import (
     postprocessing,
     compute_IDs,
     compute_SS,
-    polarplot,
     statistics,
 )
 from netCDF4 import Dataset
@@ -55,28 +51,23 @@ def multiseeding(
     output_folder: str,
     prep_params: dict,
     Clean: bool = False,
-    wave_model: str = None,
-    velocity_correction: bool = False,
+    stokes=False,
+    wave_rad=False,
     no_acc: bool = True,
     ts_calculation: int = 600,
     ts_observation: int = 600,
     ts_output: int = 3600,
 ):
-    cor = "correction" if velocity_correction else "no_correction"
     acc = "no_acc" if no_acc else "acc"
-    if wave_model is None:
-        wave_model_label = "No_wave"
-    else:
-        wave_model_label = wave_model
+    SD = "SD" if stokes else "noSD"
+    wave_model = "Wave" if wave_rad else "noWave"
     if not os.path.exists(
-        os.path.join(output_folder, f"global_{wave_model_label}_{cor}_{acc}.nc")
+        os.path.join(output_folder, f"global_{SD}_{wave_model}_{acc}.nc")
     ):
         if no_acc:
             o = OpenBerg(loglevel=20)
         else:
-            o = IcebergDrift(
-                loglevel=20, wave_model=wave_model, correction=velocity_correction
-            )
+            o = IcebergDrift(loglevel=20, with_stokes_drift=stokes, wave_rad=wave_rad)
         readers_current = copernicusmarine.open_dataset(
             dataset_id=ocean_model,
             username=USERNAME,
@@ -130,16 +121,12 @@ def multiseeding(
                 Day0 = date[0] - timedelta(days=1)
                 for k, d in enumerate(date):
                     if d == Day0 + timedelta(days=1):
-                        if not no_acc:
-                            o.seed_elements(
-                                lon[k],
-                                lat[k],
-                                d,
-                                z=0,
-                                derivation_timestep=ts_calculation,
-                            )
-                        else:
-                            o.seed_elements(lon[k], lat[k], d, z=0)
+                        o.seed_elements(
+                            lon[k],
+                            lat[k],
+                            d,
+                            z=0,
+                        )
                         Day0 += timedelta(days=1)
 
         t1 = time()
@@ -147,9 +134,7 @@ def multiseeding(
             time_step=ts_calculation,
             steps=50000,
             time_step_output=ts_output,
-            outfile=os.path.join(
-                output_folder, f"global_{wave_model_label}_{cor}_{acc}.nc"
-            ),
+            outfile=os.path.join(output_folder, f"global_{SD}_{wave_model}_{acc}.nc"),
             export_variables=["time", "age_seconds", "lon", "lat"],
         )
         t2 = time()
@@ -159,15 +144,13 @@ def multiseeding(
         print("the output file already exists")
         if Clean:
             print("Replacing the file")
-            os.remove(
-                os.path.join(output_folder, f"global_{wave_model_label}_{cor}_{acc}.nc")
-            )
+            os.remove(os.path.join(output_folder, f"global_{SD}_{wave_model}_{acc}.nc"))
             multiseeding(
                 files=files,
                 output_folder=output_folder,
                 prep_params=prep_params,
-                wave_model=wave_model,
-                velocity_correction=velocity_correction,
+                stokes=stokes,
+                wave_rad=wave_rad,
                 no_acc=no_acc,
                 ts_calculation=ts_calculation,
                 ts_observation=ts_observation,
@@ -178,22 +161,22 @@ def multiseeding(
 
 
 files = [os.path.join(input_folder, f) for f in os.listdir(input_folder)]
-for wave_model in [None, "SD", "RF", "SDRF"]:
-    for cor in [True, False]:
+for bool_stokes in [False, True]:
+    for bool_wave in [False, True]:
         multiseeding(
             files=files,
             output_folder=output_folder,
             prep_params=prep_params,
-            wave_model=wave_model,
-            velocity_correction=cor,
+            stokes=bool_stokes,
+            wave_rad=bool_wave,
             no_acc=False,
         )
 multiseeding(
     files=files,
     output_folder=output_folder,
     prep_params=prep_params,
-    wave_model=None,
-    velocity_correction=False,
+    stokes=False,
+    wave_rad=False,
     no_acc=True,
 )
 
@@ -220,6 +203,8 @@ if not os.path.exists(os.path.join(output_folder, "SS_2021.csv")):
                 prep_params,
                 outfile=os.path.join(output_folder, "list_obs.pickle"),
             )
+            with open(os.path.join(output_folder, f"matches.pickle"), "wb") as f:
+                pickle.dump(Matches, f)
             if len(Matches) > 0:
                 data_SS = compute_SS(
                     Matches,

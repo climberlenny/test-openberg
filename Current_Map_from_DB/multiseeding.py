@@ -10,7 +10,7 @@ import copernicusmarine
 import pandas as pd
 
 
-output_folder = "test_openberg/Current_Map_from_DB/output"
+output_folder = "test_openberg/Current_Map_from_DB/output3"
 
 input_folder = "DATA/FOR_LENNY/DB_csv2"
 
@@ -143,7 +143,7 @@ def multiseeding(
             t1 = time()
             o.run(
                 time_step=ts_calculation,
-                steps=50000,
+                duration=timedelta(days=5000),
                 time_step_output=ts_output,
                 outfile=os.path.join(output_folder, f"global_{ocean_model}_{i}_run.nc"),
                 export_variables=["time", "age_seconds", "lon", "lat"],

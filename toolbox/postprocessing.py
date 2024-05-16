@@ -76,7 +76,10 @@ def create_list_obs(input_folder, prep_params, files=None, outfile=None):
             )
         for i in range(len(obs)):
             list_obs.append(obs[i])
-
+    list_obs_concat = pd.concat(list_obs)
+    # plt.hist(list_obs_concat["Latitude"].values, bins=100)
+    # plt.show()
+    # stop
     with open(outfile, "wb") as f:
         pickle.dump(list_obs, f)
     return list_obs
@@ -147,10 +150,6 @@ def postprocessing(
             sub_lat = lat[j - previous_seed_number, indices_mod]
             sub_time = mod_time[indices_mod]
             test = np.where(sub_lon < 361)[0]
-            # print(sub_lon)
-            # pprint(sub_time)
-            if np.where(np.logical_and(sub_lat > 66, sub_lat < 69))[0]:
-                print("DEBUG : ", sub_lat)
             if len(test) < int(86400 / ts_output + 1):
                 print("Warning : simulation too short !")
                 pass
@@ -421,15 +420,16 @@ def polarplot2(matches, outfile, SS=None):
         marker="o",
         s=50,
         c="r",
-        label=f"mean without outsiders ({np.round(r_avg_insiders,1)},{np.round(theta_avg_insiders,1)})",
+        label=f"mean without outsiders (R={np.round(r_avg_insiders,1)},theta={np.round(theta_avg_insiders,1)})",
     )
     ax.plot(
         np.linspace(-2, 2, 100),
         np.tan(np.pi / 2 - np.deg2rad(theta_avg_insiders)) * np.linspace(-2, 2, 100),
         color="k",
         linestyle="--",
-        label=f"average deviation : {np.round(theta_avg_insiders)}",
+        label=f"average deviation : {np.round(theta_avg_insiders,1)}",
     )
+    ax.hlines(0, xmin=-5, xmax=5, linestyle=":", color="k", alpha=0.5)
     ax.set_xlim([-3, 3])
     ax.set_ylim([-3, 3])
     plt.title(f"Polar Plot \n {outsiders} points out of plot domain")
