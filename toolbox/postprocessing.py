@@ -9,10 +9,13 @@ from pprint import pprint
 import matplotlib.pyplot as plt
 import pyproj
 from matplotlib.colors import ListedColormap, Normalize
+from matplotlib import cm
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 import matplotlib.ticker as mticker
 from scipy.stats import circmean
+from pyproj import Proj, Transformer
+from scipy.spatial.distance import pdist
 
 
 def compute_IDs(files: list, input_folder: str, outfile: str, prep_params: dict):
@@ -578,4 +581,345 @@ def plot_current_map(data, outfolder, model):
         bbox_inches="tight",
         pad_inches=0.3,
     )
+    plt.show()
+
+
+def plot_ensemble_mean(ensemble_file, projection=None, **kwargs):
+    # Open the NetCDF file using netCDF4.Dataset
+    with Dataset(ensemble_file, mode="r") as data:
+        # Extract longitude and latitude
+        lon = data["lon"][:]
+        lat = data["lat"][:]
+
+        # Extract coefficients and dimensions
+        Ca = data["wind_drag_coeff"][:]
+        Co = data["water_drag_coeff"][:]
+        Lib = data["length"][:]
+        Wib = data["width"][:]
+        Sailib = data["sail"][:]
+        Draftib = data["draft"][:]
+
+        # Compute f
+        rho_air = 1.2
+        rho_water = 1000
+        k = rho_air * Ca * Sailib * Lib / (rho_water * Co * Draftib * Lib)
+        f = np.sqrt(k) / (1 + np.sqrt(k))
+
+        # Compute mean longitude and latitude
+        lon_mean = circmean(lon, high=360, low=0, axis=0)
+        lat_mean = np.mean(lat, axis=0)
+
+    # Create the plot
+    if projection is None:
+        projection = ccrs.NorthPolarStereo()
+    fig, ax = plt.subplots(subplot_kw={"projection": projection}, figsize=(12, 10))
+
+    # Add coastlines and land features
+    ax.add_feature(cfeature.COASTLINE)
+    ax.add_feature(cfeature.LAND, facecolor="lightgray")
+
+    # Customize gridlines
+    gl = ax.gridlines(
+        draw_labels=True, linewidth=0.5, color="gray", alpha=0.5, linestyle="dotted"
+    )
+    gl.top_labels = False
+    gl.right_labels = False
+    gl.left_labels = True
+    gl.bottom_labels = True
+
+    # Normalize f values to the range [0, 1] for the colormap
+    norm = Normalize(vmin=np.min(f), vmax=np.max(f))
+    cmap = plt.get_cmap("viridis")
+
+    # Plot each track with colors according to the value of f
+    for i in range(len(lon)):
+        color = cmap(norm(f[i, 0]))
+        ax.plot(lon[i], lat[i], transform=ccrs.PlateCarree(), color=color, alpha=0.4)
+
+    # Plot the mean track in blue dashed line
+    ax.plot(
+        lon_mean,
+        lat_mean,
+        transform=ccrs.PlateCarree(),
+        color="blue",
+        linestyle="--",
+        label="Ensemble mean",
+    )
+    ax.scatter(
+        lon_mean[-1],
+        lat_mean[-1],
+        color="b",
+        label="average end position",
+        transform=ccrs.PlateCarree(),
+    )
+    ax.scatter(
+        lon_mean[0],
+        lat_mean[0],
+        color="b",
+        marker="v",
+        label="average initial position",
+        transform=ccrs.PlateCarree(),
+    )
+
+    # Add the legend for the mean track
+    ax.legend(loc="lower left")
+
+    # Add a colorbar for the f values
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+    cbar = plt.colorbar(sm, ax=ax, orientation="vertical", label="f value")
+
+    # Check for extent parameters in kwargs and set the extent if provided
+    if "extent" in kwargs:
+        ax.set_extent(kwargs["extent"], crs=ccrs.PlateCarree())
+
+    # Add a title
+    plt.title("Ensemble Mean Track with f Values", fontsize=16)
+
+    # Show the plot
+    plt.show()
+
+
+def gaussian_kernel(r, sigma):
+    return np.exp(-(r**2) / (2 * sigma**2)) / (2 * np.pi * sigma**2)
+
+
+def calculate_average_distance(points):
+    if len(points) > 1000:
+        distances = pdist(points[::50])
+    else:
+        distances = pdist(points)
+    d_avg = np.mean(distances)
+    return d_avg
+
+
+def find_contour_levels(density_grid, percentages):
+    sorted_density = np.sort(density_grid.ravel())[::-1]
+    cumsum_density = np.cumsum(sorted_density)
+    total_density = cumsum_density[-1]
+    levels = [
+        sorted_density[np.searchsorted(cumsum_density, p * total_density)]
+        for p in percentages
+    ]
+    levels.sort()  # S'assurer que les niveaux sont dans l'ordre croissant
+    return levels
+
+
+def create_density_grid(points, grid_size=100, c=0.5):
+    # Calculer la distance moyenne entre les points
+    d_avg = calculate_average_distance(points) + 1
+    # Déterminer sigma en fonction de d_avg et du paramètre c
+    sigma = c * d_avg
+
+    # Déterminer les limites de la grille
+    x_min, x_max = min(points[:, 0]) - 50_000, max(points[:, 0]) + 50_000
+    y_min, y_max = min(points[:, 1]) - 50_000, max(points[:, 1]) + 50_000
+
+    # Créer une grille de coordonnées
+    x = np.linspace(x_min, x_max, grid_size)
+    y = np.linspace(y_min, y_max, grid_size)
+    X, Y = np.meshgrid(x, y)
+
+    # Initialiser la grille de densité
+    density_grid = np.zeros((grid_size, grid_size))
+
+    # Nombre de points
+    N = len(points)
+
+    # Appliquer la distribution gaussienne à chaque point
+    for point in points:
+        dx = X - point[0]
+        dy = Y - point[1]
+        r = np.sqrt(dx**2 + dy**2)
+        density_grid += gaussian_kernel(r, sigma) / N
+
+    return X, Y, density_grid
+
+
+def plot_contour_ensemble(
+    ensemble_file,
+    observation=None,
+    grid_size=100,
+    c=0.5,
+    percentages=[0.9, 0.75, 0.5, 0.25],
+    projection=None,
+    **kwargs,
+):
+    # Open the NetCDF file using netCDF4.Dataset
+    with Dataset(ensemble_file, mode="r") as data:
+        # Extract longitude and latitude
+        lon = data["lon"][:, :]
+        lat = data["lat"][:, :]
+
+        # Compute mean longitude and latitude
+        lon_mean = circmean(lon, high=360, low=0, axis=0)
+        lat_mean = np.mean(lat, axis=0)
+        lon_start_mean = circmean(data["lon"][:, 0], high=360, low=0, axis=0)
+        lat_start_mean = np.mean(data["lat"][:, 0], axis=0)
+        lon_end_mean = circmean(lon[:, -1], high=360, low=0, axis=0)
+        lat_end_mean = np.mean(lat[:, -1], axis=0)
+
+    # Convert lon/lat to Cartesian coordinates
+    transformer = Transformer.from_proj(
+        "epsg:4326", "epsg:32661", always_xy=True
+    )  # North Polar Stereographic
+    x_start, y_start = transformer.transform(lon[:, 0], lat[:, 0])
+    x_end, y_end = transformer.transform(lon[:, -1], lat[:, -1])
+
+    # Combine x and y into a single array for density calculation
+    points_start = np.vstack((x_start, y_start)).T
+    points_end = np.vstack((x_end, y_end)).T
+
+    # Create the density grid
+    X_start, Y_start, density_grid_start = create_density_grid(
+        points_start, grid_size, c
+    )
+    X_end, Y_end, density_grid_end = create_density_grid(points_end, grid_size, c)
+
+    # Calculate contour levels for the given percentages
+    levels_start = find_contour_levels(density_grid_start, percentages + [0])
+    levels_end = find_contour_levels(density_grid_end, percentages + [0])
+
+    # Create the plot with Cartopy
+    if projection is None:
+        projection = ccrs.PlateCarree()
+    fig, ax = plt.subplots(subplot_kw={"projection": projection}, figsize=(10, 8))
+    ax.add_feature(cfeature.COASTLINE)
+    ax.add_feature(cfeature.LAND)
+    gl = ax.gridlines(
+        draw_labels=True, linewidth=0.5, color="gray", alpha=0.5, linestyle="dotted"
+    )
+    gl.top_labels = False
+    gl.right_labels = False
+    gl.left_labels = True
+    gl.bottom_labels = True
+
+    # Transform X, Y back to lon/lat for plotting
+    inv_transformer = Transformer.from_proj("epsg:32661", "epsg:4326", always_xy=True)
+    lon_grid_start, lat_grid_start = inv_transformer.transform(X_start, Y_start)
+    lon_grid_end, lat_grid_end = inv_transformer.transform(X_end, Y_end)
+
+    # Plot the density grid contours
+    if levels_start[-1] > levels_start[0]:
+        contourf = ax.contourf(
+            lon_grid_start,
+            lat_grid_start,
+            density_grid_start,
+            levels=levels_start,
+            cmap="plasma_r",
+            alpha=0.6,
+            transform=ccrs.PlateCarree(),
+        )
+        contour = ax.contour(
+            lon_grid_start,
+            lat_grid_start,
+            density_grid_start,
+            levels=levels_start,
+            colors="k",
+            transform=ccrs.PlateCarree(),
+        )
+        ax.clabel(
+            contour,
+            inline=True,
+            fontsize=8,
+            fmt={
+                level: f"{int(p*100)}%" for level, p in zip(levels_start, percentages)
+            },
+        )
+
+    contourf = ax.contourf(
+        lon_grid_end,
+        lat_grid_end,
+        density_grid_end,
+        levels=levels_end,
+        cmap="plasma_r",
+        alpha=0.6,
+        transform=ccrs.PlateCarree(),
+    )
+    contour = ax.contour(
+        lon_grid_end,
+        lat_grid_end,
+        density_grid_end,
+        levels=levels_end,
+        colors="k",
+        transform=ccrs.PlateCarree(),
+    )
+    ax.clabel(
+        contour,
+        inline=True,
+        fontsize=8,
+        fmt={level: f"{int(p*100)}%" for level, p in zip(levels_end, percentages)},
+    )
+
+    # Scatter plot of the points
+    ax.scatter(
+        lon[::, -1],
+        lat[::, -1],
+        s=1,
+        color="k",
+        marker="o",
+        alpha=0.07,
+        transform=ccrs.PlateCarree(),
+        zorder=0,
+    )
+    # Plot the mean track in blue dashed line
+    ax.plot(
+        lon_mean,
+        lat_mean,
+        transform=ccrs.PlateCarree(),
+        color="b",
+        linestyle="--",
+        label="Ensemble mean drift",
+    )
+
+    # Plot the mean end position
+    ax.scatter(
+        lon_end_mean,
+        lat_end_mean,
+        color="b",
+        label="average end position",
+        transform=ccrs.PlateCarree(),
+    )
+    ax.scatter(
+        lon_start_mean,
+        lat_start_mean,
+        color="b",
+        marker="v",
+        label="average initial position",
+        transform=ccrs.PlateCarree(),
+    )
+    if not (observation is None):
+        lon_obs, lat_obs = observation
+        ax.plot(
+            lon_obs,
+            lat_obs,
+            transform=ccrs.PlateCarree(),
+            color="orange",
+            linestyle="-",
+            label="Observation",
+        )
+        ax.scatter(
+            lon_obs[0],
+            lat_obs[0],
+            transform=ccrs.PlateCarree(),
+            color="orange",
+            marker="v",
+        )
+        ax.scatter(
+            lon_obs[-1],
+            lat_obs[-1],
+            transform=ccrs.PlateCarree(),
+            color="orange",
+            marker="o",
+        )
+    if "extent" in kwargs:
+        ax.set_extent(kwargs["extent"], crs=ccrs.PlateCarree())
+
+    # Add the legend
+    ax.legend(loc="upper right")
+
+    plt.title("Density Distribution and Ensemble Mean")
+
+    # Ajustez les limites des axes pour s'assurer que les contours sont entièrement visibles
+
     plt.show()
