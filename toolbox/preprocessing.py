@@ -214,21 +214,21 @@ def preprocessing(
     No_column=False,
     Cut=True,
 ):
-    """Apply the differents above functions one by one
+    """Apply the different functions above one by one to preprocess a csv file
 
     Args:
-        filename (_type_): _description_
-        column_names (_type_): _description_
-        date_format (_type_): _description_
-        time_thresh (_type_): _description_
-        dist_thresh (_type_): _description_
-        timestep_interpolation (_type_): _description_
-        minimal_duration (_type_, optional): _description_. Defaults to timestep["1j"].
-        velocity_thresh (int, optional): _description_. Defaults to 10.
-        No_column (bool, optional): _description_. Defaults to False.
+        filename (_type_): path of the csv file
+        column_names (_type_): dictionnary to explain which column corresponds to what. Latitude , Longitude and Time
+        date_format (_type_): what is the date format of the data in th ecsv file ?
+        time_thresh (_type_): threshold to apply to the data. 2 points separated by a time longer than the threshold will be separated in two different dataframes
+        dist_thresh (_type_): threshold to apply to the data. A point having a distance to the coastline smaller than the threshold will removed and the data will be cut in two different dataframes
+        timestep_interpolation (_type_): desired timestep to interpolate the observation: a timestep of 1 day will generate data with one point every day etc...
+        minimal_duration (_type_, optional): minimal duration of an observation under what we don't use the data. Defaults to timestep["1j"].
+        velocity_thresh (int, optional): maximum velocity to remove outliers. Defaults to 10.
+        No_column (bool, optional): if the initial csv file doesn't have column names, set to True. Defaults to False.
 
     Returns:
-        _type_: _description_
+        _type_: list of dataframe
     """
 
     data = formatting(

@@ -319,13 +319,14 @@ if not os.path.exists(os.path.join(output_ID, name)):
         grounding=False,
         melting=True,
         vertical_profile=False,
+        add_coriolis=True,
     )
     o.set_config("drift:max_speed", 10)
     o.set_config("drift:truncate_ocean_model_below_m", 1000)
     o.add_reader(readers)
     # linearly_spaced_values = np.linspace(10, 101, 10)
     # height = np.repeat(linearly_spaced_values, 100)
-    height = 20
+    height = 100
     draft = 4 / 5 * height
     sail = 1 / 5 * height
     o.seed_ensemble(
