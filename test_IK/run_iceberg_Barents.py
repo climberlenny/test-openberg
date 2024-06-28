@@ -70,7 +70,7 @@ if not os.path.exists(os.path.join(output_ID, "drift_30_070025.nc")):
         outfile=os.path.join(output_ID, "drift_30_070025.nc"),
     )
     o.plot(filename=os.path.join(output_ID, "drift_30_070025.png"))
-stop
+
 # test 2 multiseeding
 
 

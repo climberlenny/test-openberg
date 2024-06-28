@@ -310,7 +310,7 @@ Ca = 0.7
 Co = 0.25
 
 
-name = "Ensemble_CaCo_30_M4.nc"
+name = "Ensemble_CaCo_30_M.nc"
 if not os.path.exists(os.path.join(output_ID, name)):
     o = IcebergDrift(
         loglevel=20,
