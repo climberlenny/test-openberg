@@ -13,7 +13,7 @@ from toolbox.postprocessing import (
     postprocessing,
     compute_IDs,
     compute_SS,
-    polarplot,
+    polarplot_contour,
     statistics,
 )
 from netCDF4 import Dataset
@@ -22,8 +22,19 @@ import copernicusmarine
 import pickle
 
 
-input_folder = "DATA/FOR_LENNY/Observations/01_ICEPPR_drifter_data_cleaned"  # folder containing the csv files
-output_folder = "test_openberg/Model_Benchmark/output"
+# input_folder = "DATA/FOR_LENNY/Observations/01_ICEPPR_drifter_data_cleaned"  # folder containing the csv files
+input_folder = "DATA/FOR_LENNY/2011-2012/BREADCRUMBS"
+# input_folder = "DATA/FOR_LENNY/2012-2013"
+# input_folder = "test_openberg/test_IK/observations_Barents"
+
+# output_folder = "test_openberg/Model_Benchmark/output"
+# output_folder = "test_openberg/Model_Benchmark/output_5km"
+# output_folder = "test_openberg/Model_Benchmark/output2011"
+output_folder = "test_openberg/Model_Benchmark/output2011_bis"
+# output_folder = "test_openberg/Model_Benchmark/output2011_5km"
+# output_folder = "test_openberg/Model_Benchmark/output2012"
+# output_folder = "test_openberg/Model_Benchmark/output2012_5km"
+# output_folder = "test_openberg/Model_Benchmark/output1990"
 
 with open("LENNY/Copernicus.txt") as f:
     text = f.read()
@@ -43,38 +54,67 @@ ocean_models = {
     # "TOPAZ5": ["cmems_mod_arc_phy_anfc_6km_detided_P1D-m"],
     # "TOPAZ6": ["dataset-topaz6-arc-15min-3km-be"],
 }
+# ocean_models = {
+#     "Ocean90": [
+#         os.path.join("DATA/FOR_LENNY/IK_data", f)
+#         for f in os.listdir("DATA/FOR_LENNY/IK_data")
+#     ]
+#     # "GLOB": ["cmems_obs_mob_glo_phy-cur_my_0.25deg_P1D-m"],
+#     # "GLORYS": [
+#     #     "cmems_mod_glo_phy_my_0.083deg_P1D-m",  # avant le 30/06/2021
+#     #     "cmems_mod_glo_phy_myint_0.083deg_P1D-m",
+#     # ],  # après le 01/07/2021
+#     # "TOPAZ4": ["cmems_mod_arc_phy_my_topaz4_P1D-m"],
+#     # "TOPAZ5": ["cmems_mod_arc_phy_anfc_6km_detided_P1D-m"],
+#     # "TOPAZ6": ["dataset-topaz6-arc-15min-3km-be"],
+# }
 
 wind_models = {
     "ERA5": [
+        # "DATA/FOR_LENNY/Wind/wind_ERA5_1990_4_7.nc"
         "DATA/FOR_LENNY/WIND_MODELS/2011/ERA5/6h.10m_wind_2011.nc",
         "DATA/FOR_LENNY/WIND_MODELS/2012/ERA5/6h.10m_wind_2012.nc",
         "DATA/FOR_LENNY/WIND_MODELS/2013/ERA5/6h.10m_wind_2013.nc",
         "DATA/FOR_LENNY/WIND_MODELS/2021/ERA5/6h.10m_wind_2021.nc",
     ],
-    "CARRA": [
-        "DATA/FOR_LENNY/WIND_MODELS/2011/CARRA/param_165.nc",
-        "DATA/FOR_LENNY/WIND_MODELS/2011/CARRA/param_166.nc",
-        "DATA/FOR_LENNY/WIND_MODELS/2012/CARRA/param_165.nc",
-        "DATA/FOR_LENNY/WIND_MODELS/2012/CARRA/param_166.nc",
-        "DATA/FOR_LENNY/WIND_MODELS/2013/CARRA/param_165.nc",
-        "DATA/FOR_LENNY/WIND_MODELS/2013/CARRA/param_166.nc",
-        "DATA/FOR_LENNY/WIND_MODELS/2021/CARRA/param_165.nc",
-        "DATA/FOR_LENNY/WIND_MODELS/2021/CARRA/param_166.nc",
-    ],
-    None: [],
+    # "CARRA": [
+    #     "DATA/FOR_LENNY/WIND_MODELS/2011/CARRA/param_165.nc",
+    #     "DATA/FOR_LENNY/WIND_MODELS/2011/CARRA/param_166.nc",
+    #     "DATA/FOR_LENNY/WIND_MODELS/2012/CARRA/param_165.nc",
+    #     "DATA/FOR_LENNY/WIND_MODELS/2012/CARRA/param_166.nc",
+    #     "DATA/FOR_LENNY/WIND_MODELS/2013/CARRA/param_165.nc",
+    #     "DATA/FOR_LENNY/WIND_MODELS/2013/CARRA/param_166.nc",
+    #     "DATA/FOR_LENNY/WIND_MODELS/2021/CARRA/param_165.nc",
+    #     "DATA/FOR_LENNY/WIND_MODELS/2021/CARRA/param_166.nc",
+    # ],
+    # None: [],
 }
 
 
-columns = {0: "Latitude", 1: "Longitude", 2: "time"}
+# columns = {0: "Latitude", 1: "Longitude", 2: "time"}  # 2021
+columns = {
+    "LATITUDE": "Latitude",
+    "LONGITUDE": "Longitude",
+    "date": "time",
+}  # 2011 2012
+# columns = {"time": "time", "LONGITUDE": "Longitude", "LATITUDE": "Latitude"}  # 1990
 
+# prep_params = {
+#     "column_names": columns,
+#     "date_format": "%d-%m-%Y %H:%M",
+#     "time_thresh": 7,
+#     "dist_thresh": 5,
+#     "ts_interp": 900,
+#     "No_column": True,
+# }  # 2021
 prep_params = {
     "column_names": columns,
-    "date_format": "%d-%m-%Y %H:%M",
+    "date_format": "%Y-%m-%d %H:%M",
     "time_thresh": 7,
     "dist_thresh": 20,
     "ts_interp": 900,
-    "No_column": True,
-}
+    "No_column": False,
+}  # 2011 2012 1990
 
 
 def multiseeding(
@@ -93,20 +133,33 @@ def multiseeding(
     ):
         o = OpenBerg(loglevel=20)
         for om in ocean_models[ocean_model]:
-            readers_current = copernicusmarine.open_dataset(
-                dataset_id=om,
-                username=USERNAME,
-                password=PASSWORD,
-                # minimum_latitude=60,
-            )
-            readers_current = reader_netCDF_CF_generic.Reader(
-                readers_current,
-                standard_name_mapping={
-                    "eastward_sea_water_velocity": "x_sea_water_velocity",
-                    "northward_sea_water_velocity": "y_sea_water_velocity",
-                },
-            )
-            o.add_reader(readers_current)
+            try:
+                readers_current = copernicusmarine.open_dataset(
+                    dataset_id=om,
+                    username=USERNAME,
+                    password=PASSWORD,
+                    # minimum_latitude=60,
+                )
+                readers_current = reader_netCDF_CF_generic.Reader(
+                    readers_current,
+                    standard_name_mapping={
+                        "eastward_sea_water_velocity": "x_sea_water_velocity",
+                        "northward_sea_water_velocity": "y_sea_water_velocity",
+                    },
+                )
+                o.add_reader(readers_current)
+            except:
+                readers_current = ocean_models[ocean_model]
+
+                readers_current = reader_netCDF_CF_generic.Reader(
+                    readers_current,
+                    standard_name_mapping={
+                        "eastward_sea_water_velocity": "x_sea_water_velocity",
+                        "northward_sea_water_velocity": "y_sea_water_velocity",
+                    },
+                )
+                o.add_reader(readers_current)
+                break
 
         if not wind_model is None:
             reader_wind = reader_netCDF_CF_generic.Reader(wind_models[wind_model])
@@ -185,7 +238,7 @@ for wind_model in wind_models.keys():
             wind_model=wind_model,
         )
 
-nc_f = "test_openberg/Model_Benchmark/output/global_GLOB_ERA5_run.nc"
+# nc_f = "test_openberg/Model_Benchmark/output/global_GLOB_ERA5_run.nc"
 
 IDs = compute_IDs(
     os.listdir(input_folder),
@@ -209,19 +262,41 @@ if not os.path.exists(os.path.join(output_folder, "SS_2021.csv")):
 
             print(wind_model, ocean_model)
             nc_f = os.path.join(output_folder, nc_f)
-            Matches = postprocessing(nc_f, input_folder, IDs, prep_params)
+            if os.path.exists(
+                os.path.join(
+                    output_folder, f"{ocean_model}_{wind_model}_matches.pickle"
+                )
+            ):
+                with open(
+                    os.path.join(
+                        output_folder, f"{ocean_model}_{wind_model}_matches.pickle"
+                    ),
+                    "rb",
+                ) as f:
+                    Matches = pickle.load(f)
+            else:
+                Matches = postprocessing(
+                    nc_f, input_folder, IDs=IDs, prep_params=prep_params
+                )
+                with open(
+                    os.path.join(
+                        output_folder, f"{ocean_model}_{wind_model}_matches.pickle"
+                    ),
+                    "wb",
+                ) as f:
+                    pickle.dump(Matches, f)
             if len(Matches) > 0:
                 data_SS = compute_SS(
                     Matches, os.path.join(output_folder, "SS_2021.csv")
                 )
                 data_SS.loc[:, "ocean model"] = ocean_model
                 data_SS.loc[:, "wind model"] = wind_model
-                polarplot(
+                polarplot_contour(
                     Matches,
                     os.path.join(
                         output_folder, f"polarplot_{wind_model}_{ocean_model}.png"
                     ),
-                    data_SS.loc[:, "SS"],
+                    c=0.2,
                 )
                 df2save.append(data_SS)
 
@@ -229,6 +304,4 @@ if not os.path.exists(os.path.join(output_folder, "SS_2021.csv")):
     df2save.to_csv(os.path.join(output_folder, "SS_2021.csv"), index=False)
 else:
     df2save = pd.read_csv(os.path.join(output_folder, "SS_2021.csv"))
-statistics(
-    df2save, outfolder=os.path.join("test_openberg/Model_Benchmark/output", "stats")
-)
+statistics(df2save, outfolder=os.path.join(output_folder, "stats"))

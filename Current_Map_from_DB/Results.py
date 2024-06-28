@@ -5,6 +5,7 @@ from toolbox.postprocessing import (
     compute_SS,
     statistics,
     polarplot2,
+    polarplot_contour,
     plot_current_map,
 )
 from pprint import pprint
@@ -16,6 +17,7 @@ import cartopy.feature as cfeature
 import matplotlib.pyplot as plt
 import numpy as np
 import pickle
+from matplotlib.patches import FancyBboxPatch
 
 
 output_folder = "test_openberg/Current_Map_from_DB/output3"
@@ -50,7 +52,7 @@ print(IDs)
 group = list(range(0, len(files), 100))
 group.append(None)
 
-models = ["GLOB"]
+models = ["TOPAZ4"]
 for model in models:
     SS = []
     nc_f = [
@@ -80,10 +82,8 @@ for model in models:
             save=True,
         )
         SS.append(SS_data)
-    polarplot2(
-        Matches,
-        os.path.join(output_folder, f"{model}_polarplot.png"),
-        # data_SS.loc[:, "SS"],
+    polarplot_contour(
+        Matches, os.path.join(output_folder, f"{model}_polarplot.png"), c=0.1
     )
     # pprint(Matches)
     # SS = pd.concat(SS)

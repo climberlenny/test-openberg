@@ -85,7 +85,7 @@ def filt_timegap(data: pd.DataFrame, threshold: int) -> pd.DataFrame:
     return data
 
 
-def Dist2CoastLine(x, y, D2C_dataset: str):
+def Dist2CoastLine(x, y, D2C_dataset: str = D2C):
     """Compute the distance to coast line of each point
 
     Args:
