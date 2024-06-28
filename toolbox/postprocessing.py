@@ -25,6 +25,17 @@ from matplotlib.patches import Patch
 
 
 def compute_IDs(files: list, input_folder: str, outfile: str, prep_params: dict):
+    """If the observations are seprated in many different files, this function helps tracking each future seed you will generate for a multiseeding knowing the preprocessing pattern.
+
+    Args:
+        files (list): _description_
+        input_folder (str): _description_
+        outfile (str): _description_
+        prep_params (dict): _description_
+
+    Returns:
+        _type_: _description_
+    """
     if os.path.exists(outfile):
         with open(outfile, "rb") as f:
             IDs = pickle.load(f)
@@ -101,6 +112,21 @@ def postprocessing(
     files=None,
     outfile=None,
 ):
+    """This function associate a simulation and the corresponding observation for each seed of an opendrift simulation.
+
+    Args:
+        nc_files (_type_): _description_
+        input_folder (_type_): _description_
+        IDs (_type_): _description_
+        prep_params (_type_): _description_
+        ts_output (int, optional): _description_. Defaults to 3600.
+        files (_type_, optional): _description_. Defaults to None.
+        outfile (_type_, optional): _description_. Defaults to None.
+
+    Returns:
+        _type_: An array of matches : a match concatenates the observation and the simulation for the desired duration. Each one concatenates lon,lat.
+        Matches = (N Matche,(Observation,simulation),(lon,lat)*duration)
+    """
     if not files is None:
         group = list(range(0, len(files), 100))
         group.append(None)
@@ -266,6 +292,16 @@ def postprocessing_1(
 
 
 def compute_SS(matches, outfile, save=False):
+    """Compute the skill score and the rmse from a list of matches
+
+    Args:
+        matches (_type_): _description_
+        outfile (_type_): _description_
+        save (bool, optional): _description_. Defaults to False.
+
+    Returns:
+        _type_: _description_
+    """
     LON = []
     LAT = []
     SS = []
@@ -546,6 +582,14 @@ def polarplot2(matches, outfile, SS=None):
 
 
 def polarplot_contour(matches, outfile, c=0.2, SS=None):
+    """Used to generate a polarplot from a list of matches
+
+    Args:
+        matches (_type_): _description_
+        outfile (_type_): _description_
+        c (float, optional): _description_. Defaults to 0.2.
+        SS (_type_, optional): _description_. Defaults to None.
+    """
     THETA = []
     R = []
     for match in matches:
@@ -662,57 +706,6 @@ def polarplot_contour(matches, outfile, c=0.2, SS=None):
     )  # Set aspect ratio to make it look polar
     plt.savefig(outfile, bbox_inches="tight", dpi=400)
     plt.show()
-
-
-def tuning_drag_by_dev(observation, ensemble, days=1):
-    THETA = []
-    R = []
-    lon_obs = observation[:, 0]
-    lat_obs = observation[:, 1]
-    for member in ensemble:
-        lon_mod = member[:, 0]
-        lat_mod = member[:, 1]
-
-        geod = pyproj.Geod(ellps="WGS84")
-
-        # observation = ref
-        azimuth_alpha, a2, distance0 = geod.inv(
-            lon_obs[0], lat_obs[0], lon_obs[-1], lat_obs[-1]
-        )
-        vel0 = distance0 / 86400 / days
-        # simulation
-        azimuth_betha, a2, distance1 = geod.inv(
-            lon_mod[0], lat_mod[0], lon_mod[-1], lat_mod[-1]
-        )
-        vel1 = distance1 / 86400 / days
-
-        # calculate the coordinates in the polar plot
-        theta = (azimuth_betha - azimuth_alpha + 360) % 360
-        r = vel1 / vel0 if vel0 > 0 else 10
-        THETA.append(theta)
-        R.append(r)
-
-    R = np.array(R)
-    THETA = np.array(THETA)
-    THETA[THETA > 180] = THETA[THETA > 180] - 360
-    best_fit = np.nanargmin(np.abs(THETA))
-
-    return best_fit, np.nanmin(np.abs(THETA)), THETA
-
-
-def tuning_drag_by_rmse(observation, ensemble):
-
-    RMSE = []
-    lon_obs = observation[:, 0]
-    lat_obs = observation[:, 1]
-    for member in ensemble:
-        lon_mod = member[:, 0]
-        lat_mod = member[:, 1]
-        dist = distance_between_trajectories(lon_obs, lat_obs, lon_mod, lat_mod)
-        rmse = np.sqrt(np.nansum(dist**2)) / len(dist)
-        RMSE.append(rmse)
-    best_fit = np.nanargmin(RMSE)
-    return best_fit, np.nanmin(RMSE), RMSE
 
 
 def plot_current_map(data, outfolder, model):
@@ -1017,6 +1010,21 @@ def plot_contour_ensemble(
     ax=None,
     **kwargs,
 ):
+    """Function used to plot the ensemble contour plot
+
+    Args:
+        ensemble_file (_type_): _description_
+        observation (_type_, optional): _description_. Defaults to None.
+        grid_size (int, optional): _description_. Defaults to 100.
+        c (float, optional): _description_. Defaults to 0.5.
+        percentages (list, optional): _description_. Defaults to [0.9, 0.75, 0.5, 0.25].
+        projection (_type_, optional): _description_. Defaults to None.
+        membres (bool, optional): _description_. Defaults to False.
+        ax (_type_, optional): _description_. Defaults to None.
+
+    Returns:
+        _type_: _description_
+    """
     # Open the NetCDF file using netCDF4.Dataset
     with Dataset(ensemble_file, mode="r") as data:
         # Extract longitude and latitude
